@@ -9,11 +9,11 @@
 
 #define MAX_MESSAGE_LENGHT 1000
 
-char clientMessage[];
+char clientMessage[MAX_MESSAGE_LENGHT];
 
 struct message_t{
 	int id;
-	char message[];
+	char message[MAX_MESSAGE_LENGHT];
 	char checksum[];
 };
 
@@ -49,7 +49,7 @@ void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in
 
 
 
-	sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
+	sendto(fd, (tMessage*)&response, sizeof(response), MSG_CONFIRM,
 		(struct sockaddr *) &servaddr, sizeof(servaddr));
 
 	printf("Response Sent\n");
@@ -63,19 +63,19 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	int ls = socket(AF_INET, SOCK_STREAM, IPPROTO_UDP)
+	int ls = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (ls==-1) {
 		 perror("Error occured while executing socket()");
 		 return -1;
 	}
 
 	tMessage request;
-	request = (*message_t) malloc(sizeof(message_t));
+	//request = (*message_t) malloc(sizeof(message_t));
 
 	tMessage response;
-	response = (*message_t) malloc(sizeof(message_t));
+	//response = (*message_t) malloc(sizeof(message_t));
 
-	struct sockaddr_in_addr;
+	struct sockaddr_in addr, caddr;
 	addr.sin_addr.s_addr = INADDR_ANY;
 	addr.sin_port = htons(atoi(argv[1]));
 	addr.sin_family = AF_INET;
@@ -90,16 +90,10 @@ int main(int argc, char **argv) {
 	while (1) {
 		addr_len = sizeof(struct sockaddr_in);
 		bzero(&caddr, addr_len);
-		cfd = accept( ls,
-					(struct sockaddr *)&caddr,
-					(socklen_t *)&addr_len);
-		if (cfd == -1) {
-			perror("Error occured while executing accept()");
-			close(ls);
-			return -1;
-		}
-		rdt_receive(cfd, request, response, struct sockaddr_in);
-		rdt_send(cfd, request, response, struct sockaddr_in);
+		cfd = ls;
+		rdt_receive(cfd, request, response, (struct sockaddr_in)caddr);
+		
+		//rdt_send(cfd, request, response, (struct sockaddr_in)caddr);
 		close(cfd);
 	}
 	

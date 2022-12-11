@@ -6,12 +6,13 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <errno.h>
 
 #define SENDER 1
-
+#define MAX_MSG 1000
 struct message_t{
 	int id;
-	char message[];
+	char message[MAX_MSG];
 	char checksum[];
 };
 
@@ -19,19 +20,32 @@ typedef struct message_t tMessage;
 
 void rdt_send(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
 {
-	sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
-		(struct sockaddr *) &servaddr, sizeof(servaddr));
+	int currerrno = errno;
+	int keepGoing = 1;
+	while(keepGoing == 1){
+		sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
+			(struct sockaddr *) &servaddr, sizeof(servaddr));
 
-	printf("Message Sent\n");
+		printf("Message Sent\n");
 
 
 
-	int res, len;
-	len = sizeof(struct sockaddr_in);
-	res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
-			(struct sockaddr *) &servaddr, &len);
-
-	printf("Acknoledgment: %s\n", response.message);
+		int res, len;
+		len = sizeof(struct sockaddr_in);
+		res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
+				(struct sockaddr *) &servaddr, &len);
+		
+		if (errno != EAGAIN) 
+		{
+			printf("Acknoledgment: %s\n", response.message);
+			keepGoing = 0;
+		}
+		else 
+		{
+			printf("Timeout! Trying again...\n");
+			errno = 0; //reset errno to try again
+		}
+	}
 }
 
 
@@ -45,11 +59,12 @@ void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in
 	printf("Received: %s\n", response.message);
 
 
-
+	/*
 	sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
 		(struct sockaddr *) &servaddr, sizeof(servaddr));
 
 	printf("Response Sent\n");
+	*/
 }
 
 
@@ -69,10 +84,8 @@ int main(int argc, char* argv[])
 	struct sockaddr_in servaddr;
 
 	tMessage request;
-	request = (*message_t) malloc(sizeof(message_t));
 
 	tMessage response;
-	response = (*message_t) malloc(sizeof(message_t));
 
 	strcpy(request.message, argv[3]);
 	request.id = SENDER;
@@ -88,13 +101,20 @@ int main(int argc, char* argv[])
        		exit(EXIT_FAILURE);
 	}
 
+	struct timeval timeout;
+	timeout.tv_sec = 5; // segundos
+	timeout.tv_usec = 0; // microssegundos
+	// timeout para recebimento
+	if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
+		perror("setsockopt(..., SO_RCVTIMEO ,...");
+
 	memset(&servaddr, 0, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(atoi(port));
 	servaddr.sin_addr.s_addr = inet_addr(ip);
 
 	rdt_send(fd, request, response, servaddr);
-	rdt_receive(fd, request, response, servaddr);
+	//rdt_receive(fd, request, response, servaddr);
 
 	close(fd);
 	return 0;
