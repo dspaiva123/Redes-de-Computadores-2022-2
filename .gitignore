@@ -1,3 +1,7 @@
+*
+!/**/
+!*.*
+!.gitignore
 .o
 .out
 .vscode
