@@ -6,8 +6,12 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <sys/time.h>
 
 #define MAX_MESSAGE_LENGHT 1000
+#define RECEIVER 2
 
 char clientMessage[MAX_MESSAGE_LENGHT];
 
@@ -15,24 +19,56 @@ struct message_t
 {
 	int id;
 	char message[MAX_MESSAGE_LENGHT];
-	char checksum[];
+	uint8_t checksum;
 };
 
 typedef struct message_t tMessage;
 
+float getTime()
+{
+	struct timeval tp;
+	gettimeofday(&tp, 0);
+	float seconds = tp.tv_sec;
+	float microseconds = tp.tv_usec;
+	return (1000 * seconds +  microseconds);
+}
+
 void rdt_send(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
 {
-	sendto(fd, (tMessage *)&request, sizeof(request), MSG_CONFIRM,
-		   (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-	printf("Message Sent\n");
+	int currerrno = errno;
+	int keepGoing = 1;
 
-	int res, len;
-	len = sizeof(struct sockaddr_in);
-	res = recvfrom(fd, (tMessage *)&response, sizeof(response), MSG_WAITALL,
-				   (struct sockaddr *)&servaddr, &len);
+	double t1 = 0;
+	double t2 = 0;
 
-	printf("Acknoledgment: %s\n", response.message);
+	while(keepGoing == 1)
+	{
+		t1 = getTime();
+		sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
+			(struct sockaddr *) &servaddr, sizeof(servaddr));
+
+		printf("Response Sent\n");
+
+		int res, len;
+		len = sizeof(struct sockaddr_in);
+		res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
+				(struct sockaddr *) &servaddr, &len);
+
+		if(errno != EAGAIN)
+		{
+			printf("Acknoledgement: %d\n", response.id);
+			keepGoing = 0;
+			t2 = getTime();
+			double timeElapsed = t2 - t1;
+			printf("Elapsed = %f\n", timeElapsed);
+		}
+		else
+		{
+			printf("Timeout! Trying again...\n");
+			errno = 0; //reset errno to try again
+		}
+	}
 }
 
 void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
@@ -48,7 +84,7 @@ void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in
 	sendto(fd, (tMessage *)&response, sizeof(response), MSG_CONFIRM,
 		   (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-	printf("Response Sent\n");
+	printf("Response Sent = %s\n", clientMessage);
 }
 
 int main(int argc, char **argv)
@@ -74,6 +110,9 @@ int main(int argc, char **argv)
 
 		tMessage response;
 		// response = (*message_t) malloc(sizeof(message_t));
+
+		response.id = RECEIVER;
+		request.id = -1;
 
 		struct sockaddr_in addr, caddr;
 		addr.sin_addr.s_addr = INADDR_ANY;

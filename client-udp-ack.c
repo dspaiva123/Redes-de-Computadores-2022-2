@@ -7,40 +7,59 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <sys/time.h>
 
 #define SENDER 1
 #define MAX_MSG 1000
 struct message_t{
 	int id;
 	char message[MAX_MSG];
-	char checksum[];
+	uint8_t checksum;
 };
 
+
 typedef struct message_t tMessage;
+
+double getTime()
+{
+	struct timeval tp;
+	gettimeofday(&tp, 0);
+	double seconds = tp.tv_sec;
+	double microseconds = tp.tv_usec;
+	return (1000 * seconds + microseconds);
+}
 
 void rdt_send(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
 {
 	int currerrno = errno;
 	int keepGoing = 1;
+
+	double t1 = 0;
+	double t2 = 0;
+
 	while(keepGoing == 1){
+		t1 = getTime();
 		sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
 			(struct sockaddr *) &servaddr, sizeof(servaddr));
 
 		printf("Message Sent\n");
 
 
-
 		int res, len;
 		len = sizeof(struct sockaddr_in);
 		res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
 				(struct sockaddr *) &servaddr, &len);
-		
-		if (errno != EAGAIN) 
+
+		if (errno != EAGAIN)
 		{
-			printf("Acknoledgment: %s\n", response.message);
+			printf("Acknoledgment: %d\n", response.id);
 			keepGoing = 0;
+			t2 = getTime();
+			double timeElapsed = t2 - t1;
+			printf("Elapsed = %f\n", timeElapsed);
 		}
-		else 
+		else
 		{
 			printf("Timeout! Trying again...\n");
 			errno = 0; //reset errno to try again
@@ -52,12 +71,12 @@ void rdt_send(int fd, tMessage request, tMessage response, struct sockaddr_in se
 void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
 {
 	int res, len;
+
 	len = sizeof(struct sockaddr_in);
 	res = recvfrom(fd, (tMessage*)&response, sizeof(tMessage), MSG_WAITALL,
-			(struct sockaddr *) &servaddr, &len);
+		 	(struct sockaddr *) &servaddr, &len);
 
-	printf("Received: %s\n", response.message);
-
+	printf("Response: %d\n", response.id);
 
 	/*
 	sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
