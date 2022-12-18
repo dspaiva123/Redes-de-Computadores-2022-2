@@ -21,6 +21,9 @@ struct message_t{
 
 typedef struct message_t tMessage;
 
+
+
+
 double getTime()
 {
 	struct timeval tp;
