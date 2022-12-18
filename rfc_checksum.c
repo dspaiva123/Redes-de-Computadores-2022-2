@@ -31,10 +31,15 @@ uint16_t rfc_checksum(void* addr,size_t count) {
        return ~sum;
 }
 
+int test(int data){
+    return (data != 1);
+}
+
 int main(int argc, char const *argv[])
 {
-    char* data;
-    data = argv[1];
-    printf("\n%d\n", rfc_checksum(data,sizeof(data)));
+    char *aa = "1";
+    int data;
+    data = atoi(aa);
+    printf("\n%d\n", test(data));
     return 0;
 }
