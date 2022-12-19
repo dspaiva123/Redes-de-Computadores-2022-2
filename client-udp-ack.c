@@ -59,14 +59,14 @@ tMessage make_pkt(char ACK, void* msg, unsigned short msg_size)
 	return pkt;
 }
 
-int isCorrupt(tMessage pkt) //VERIFICA SE O CHECKSUM CALCULADO É DIFERENTE DO DO ENVIADO!
+int isCorrupt(tMessage pkt) //Verica se Checksum é diferente do esperado
 {
 	return (pkt.checksum != rfc_checksum(&pkt.message,sizeof(pkt.message)));
 }
 
-int isACK(tMessage pkt, int expID) //VERIFICA SE EH O ACK ESPERADO
+int isACK(tMessage pkt, int expID) //Verifica se é o ACK esperado
 {
-	if (pkt.id != 2) return 0; //se nao é pacote ack, não é ACK
+	if (pkt.id != 2) return 0; //Se não é pacote ACK, não é ACK
 	return (atoi(pkt.message) == expID); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
 }
 
