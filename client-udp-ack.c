@@ -10,30 +10,31 @@
 #include <inttypes.h>
 #include <sys/time.h>
 
-#define SENDER 1
 #define MAX_MSG 1000
 #define din_timeout 1
 
-//TIMEOUT INICIAL:
-__time_t init_timeout_sec = 2;		/* Seconds.  */
-__suseconds_t init_timeout_usec = 0;	/* Microseconds.  */
+unsigned short currPkt = 0; //inicializa enviando o pacote 0
 
 struct message_t{
-	char id; //0 ou 1 ou 2 (ack)
-	char message[MAX_MSG];
-	uint8_t checksum;
+	unsigned int seq; //seq number
+	unsigned short ack; //ZERO se pacote normal
+	unsigned short checksum;
+    unsigned short size_msg;
+	unsigned char msg[MAX_MSG];
 };
 
 typedef struct message_t tMessage;
 
-//CORRIGIR DEPOIS!!!
-uint16_t rfc_checksum(void* addr,size_t count) {
+
+/*	Addr: pointer to msg
+ *	Count: size of msg */
+unsigned short rfc_checksum(unsigned short * addr,size_t count) {
     register long sum = 0;
 
         while( count > 1 )  {
            /*  This is the inner loop */
                sum += * (unsigned short *) addr++;
-               count -= 2;
+               count -= 1;
        }
 
            /*  Add left-over byte, if any */
@@ -47,12 +48,14 @@ uint16_t rfc_checksum(void* addr,size_t count) {
        return ~sum;
 }
 
-tMessage make_pkt(char id, char msg[MAX_MSG], u_int16_t checksum)
+tMessage make_pkt(char ACK, void* msg, unsigned short msg_size)
 {
 	tMessage pkt;
-	pkt.id = id;
-	strcpy(pkt.message,msg);
-	pkt.checksum = checksum;
+	bzero(&pkt, sizeof(tMessage));
+	pkt.seq = currPkt;
+    pkt.ack = ACK;
+	memcpy(pkt.msg, msg, msg_size);
+	pkt.checksum = rfc_checksum((unsigned short *) pkt.msg, msg_size);
 	return pkt;
 }
 
@@ -75,7 +78,7 @@ int samples = 0;
 long int secSum = 0;
 long int usecSum = 0;
 
-double getTime_ms(struct timeval *tp)
+double getTime_sec(struct timeval *tp)
 {
 	gettimeofday(tp, 0);
 	return (1000 * (double) tp->tv_sec + (double) tp->tv_usec);
@@ -101,7 +104,7 @@ void set_timeout(int fd, struct timeval timeout)
 
 // ############### RDT ###############################
 
-char currPkt = 0; //inicializa enviando o pacote 0
+
 
 void rdt_send(int fd, char data[MAX_MSG], struct sockaddr_in servaddr)
 {

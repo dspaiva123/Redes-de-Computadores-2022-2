@@ -10,17 +10,36 @@
 #include <inttypes.h>
 #include <sys/time.h>
 
+unsigned short currPkt = 1; //inicializa enviando o pacote 0
 #define MAX_MSG 1000
+
+struct header_t{
+	unsigned int seq; //seq number
+	unsigned short ack; //ZERO se pacote normal
+	unsigned short checksum;
+    unsigned short size_msg;
+};
+
 struct message_t{
-	char id; //0 ou 1 ou 2 (ack)
-	char message[MAX_MSG];
-	uint16_t checksum;
+    struct header_t h;
+	unsigned char msg[MAX_MSG];
 };
 
 typedef struct message_t tMessage;
 
-uint16_t rfc_checksum(void* addr,size_t count) {
-    register long long sum = 0;
+int get_msg_size(){
+    return (sizeof(struct header_t) + msg.h.size_msg);
+}
+
+void exemplo(){
+    tMessage msg;
+    msg.h.checksum = 0;
+    msg.h.checksum = checksum(&msg, get_msg_size(msg));   
+    //PARA O ACK BASTA PASSAR ISSO SÓ QUE: checksum(&msg, sizeof(struct header_t));
+}
+
+unsigned short rfc_checksum(unsigned short * addr,size_t count) {
+    register long sum = 0;
 
         while( count > 1 )  {
            /*  This is the inner loop */
@@ -64,7 +83,7 @@ void ev_timeout(struct timeval *ti, struct timeval *tf){
 }
 
 /* ########## MAIN PROGRAM #################*/
-u_int16_t check(char data[1000]){
+/* u_int16_t check(char data[1000]){
     return rfc_checksum(data, sizeof(data)*8);
 }
 void test(char data[1000]){
@@ -75,33 +94,29 @@ void test(char data[1000]){
 int isCorrupt(tMessage pkt) //VERIFICA SE O CHECKSUM CALCULADO É DIFERENTE DO DO ENVIADO!
 {
 	return (pkt.checksum != rfc_checksum(pkt.message,strlen(pkt.message)));
+} */
+
+tMessage make_pkt(char ACK, void* msg, unsigned short msg_size)
+{
+	tMessage pkt;
+	bzero(&pkt, sizeof(tMessage));
+	pkt.seq = currPkt;
+    pkt.ack = ACK;
+	memcpy(pkt.msg, msg, msg_size);
+	pkt.checksum = rfc_checksum((unsigned short *) pkt.msg, msg_size);
+	return pkt;
 }
+
+
 
 int main(int argc, char const *argv[])
 {
-    struct timeval t1, t2;
-    double ms1,ms2;
-
-   /*  for(int i = 0; i < 10; i++){
-        ms1 = getTime_ms(&t1);
-        printf("\n%ld e %ld\n", t1.tv_sec, t1.tv_usec);
-        sleep(i);
-        ms2 = getTime_ms(&t2);
-        printf("\n%ld e %ld\n", t2.tv_sec, t2.tv_usec);
-        ev_timeout(&t1, &t2);
-        printf("\nTIMEOUT: %ld e %ld\n", timeout.tv_sec, timeout.tv_usec);
-    } */
-
     tMessage msg;
-    char pkt = 1;
-    strcpy(msg.message, argv[1]);
-    uint16_t ev = rfc_checksum(argv[1], strlen(argv[1]));
-    printf("\n%s - %d\n", argv[1], ev);
-    msg.checksum = rfc_checksum(msg.message,strlen(msg.message));
-    printf("\n%s - %d\n", msg.message, msg.checksum);
-    printf("\n%d\n", !pkt);
-    //test(msg.message);
-
+    bzero(&msg, sizeof(tMessage));
+    msg = make_pkt(0, argv[1], strlen(argv[1]));
+    printf("\n%s -> CS: %d\n", msg.msg, msg.checksum);
+    /* msg.checksum = rfc_checksum(msg.message,strlen(msg.message));
+    printf("\n%s - %d\n", msg.message, msg.checksum); */
     
     return 0;
 }
