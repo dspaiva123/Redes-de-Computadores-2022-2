@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
@@ -9,93 +10,19 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <sys/time.h>
-#include <math.h>
+
 
 #define MAX_MSG 1000
 #define din_timeout 1
-
-struct header_t{
-	unsigned int seq; //seq number
-	unsigned int ack; //ZERO se pacote normal
-	unsigned short checksum;
-    unsigned short size_msg;
-};
-
-struct message_t{
-    struct header_t h;
-	unsigned char msg[MAX_MSG];
-};
-
-typedef struct message_t tMessage;
-
-/*	Addr: pointer to msg
- *	Count: size of msg */
-unsigned short rfc_checksum(unsigned short * addr,size_t count) {
-    register long sum = 0;
-
-        while( count > 1 )  {
-           /*  This is the inner loop */
-               sum += * (unsigned short *) addr++;
-               count -= 1;
-       }
-
-           /*  Add left-over byte, if any */
-       if( count > 0 )
-               sum += * (unsigned char *) addr;
-
-           /*  Fold 32-bit sum to 16 bits */
-       while (sum>>16)
-           sum = (sum & 0xffff) + (sum >> 16);
-
-       return ~sum;
-}
-
-int get_msg_size(tMessage msg){
-    return (sizeof(struct header_t) + msg.h.size_msg);
-}
-
-/* returns a tMessage package containing:
-	ACK -> 0, if is a message and ACK number if is an ACK package
-	Message -> the data to be transmitted
-	msg_size -> the size of the message
-*/
-tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned short msg_size)
-{
-	tMessage pkt;
-	bzero(&pkt, sizeof(tMessage));
-	pkt.h.seq = seq;
-    pkt.h.ack = ack;
-	memcpy(pkt.msg, message, msg_size);
-    pkt.h.checksum = 0;
-	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
-	return pkt;
-}
-
-void show_msg(tMessage msg)
-{
-    if(msg.h.ack != 0) printf("\n=============\nACK Package:\n");
-    else printf("\n=============\nMSG Package:\n");
-
-    printf("|Header:\n| seq: %d\n| ack: %d\n| CS: %d\n| msg_size: %d\n|Message: \n| msg: \"%s\"\n=============\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
-}
-
-int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
-{
-	return (msg.h.checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)));
-}
-
-int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
-{
-	return (msg.h.ack == expAck); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
-}
-
-/* ########## timeout.h #################*/
-
 #define STOUS 1000000 //10**6
+
+unsigned short currMsg = 1; //inicializa enviando a mensagem 1
+
+
+/* ########## rdt_timeout.h #################*/
 
 double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
 double deviation = 0; //TODO desvio
-
 
 struct timeval get_time_in_timeval(double time) 
 {
@@ -144,15 +71,96 @@ void set_timeout(int fd, double timeout_insec)
 		perror("setsockopt(..., SO_RCVTIMEO ,...");
 }
 
-// ############### RDT ###############################
+/* ########## rdt_checksum.h #################*/
 
-unsigned short currMsg = 1; //inicializa enviando a mensagem 1
+/*	Addr: pointer to msg
+ *	Count: size of msg */
+unsigned short rfc_checksum(unsigned short * addr,size_t count) {
+    register long sum = 0;
+
+        while( count > 1 )  {
+           /*  This is the inner loop */
+               sum += * (unsigned short *) addr++;
+               count -= 1;
+       }
+
+           /*  Add left-over byte, if any */
+       if( count > 0 )
+               sum += * (unsigned char *) addr;
+
+           /*  Fold 32-bit sum to 16 bits */
+       while (sum>>16)
+           sum = (sum & 0xffff) + (sum >> 16);
+
+       return ~sum;
+}
+
+/* ########## rdt.h #################*/
+
+struct header_t{
+	unsigned int seq; //seq number
+	unsigned int ack; //ZERO se pacote normal
+	unsigned short checksum; //calculated checksum using the above RFC_checksum function from checksum.h
+    unsigned short size_msg; //size of message payload LIMITED BY MAX_MSG
+};
+
+struct message_t{
+    struct header_t h;
+	unsigned char msg[MAX_MSG];
+};
+
+typedef struct message_t tMessage;
+
+
+/* Given a tMessage msg, returns the respective size of packet
+ * aa 
+ */
+int get_msg_size(tMessage msg){
+    return (sizeof(struct header_t) + msg.h.size_msg);
+}
+
+/* returns a tMessage package containing:
+ *	ACK -> 0, if is a message and ACK number if is an ACK package
+ *	Message -> the data to be transmitted
+ *	msg_size -> the size of the message
+ */
+tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned short msg_size)
+{
+	tMessage pkt;
+	bzero(&pkt, sizeof(tMessage));
+	pkt.h.seq = seq;
+    pkt.h.ack = ack;
+	memcpy(pkt.msg, message, msg_size);
+    pkt.h.checksum = 0;
+	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
+	return pkt;
+}
+
+/* Utilitary funct
+*/
+void show_msg(tMessage msg)
+{
+    if(msg.h.ack != 0) printf("\n=============\nACK Package:\n");
+    else printf("\n=============\nMSG Package:\n");
+
+    printf("|Header:\n| seq: %d\n| ack: %d\n| CS: %d\n| msg_size: %d\n|Message: \n| msg: \"%s\"\n=============\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
+}
+
+int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
+{
+	return (msg.h.checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)));
+}
+
+int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
+{
+	return (msg.h.ack == expAck); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
+}
 
 void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *port)
 {
-	int currerrno = errno; //keep track of errno to check if there was a timeout
 	int keepGoing = 1;
-	int res, len;
+	int res;
+	unsigned int len;
 
 	//Parte do timeout movel:
 	double t0 = 0;
@@ -275,12 +283,12 @@ int main(int argc, char* argv[])
        	exit(EXIT_FAILURE);
 	}
 
-	//Conffigurando o TIMEOUT (mover pro rdt_send?)
+/* 	//Conffigurando o TIMEOUT (mover pro rdt_send?)
 	struct timeval timeout;
 	//definir timeout
 	// timeout para recebimento
 	if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
-		perror("setsockopt(..., SO_RCVTIMEO ,...");
+		perror("setsockopt(..., SO_RCVTIMEO ,..."); */
 
 	rdt_send(fd, data, data_size, ip, port);
 
