@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <sys/time.h>
+#include <math.h>
+
 
 unsigned short currMsg = 1; //inicializa enviando o pacote 1
 #define MAX_MSG 1000
@@ -60,28 +62,38 @@ unsigned short rfc_checksum(unsigned short * addr,size_t count) {
 
 /* ########## timeout.h #################*/
 
-struct timeval timeout;//Note that timeout stores de AVERAGE timeout to be set
-int samples = 0;
-long int secSum = 0;
-long int usecSum = 0;
+#define STOUS 1000000
 
-double getTime_ms(struct timeval *tp)
+double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
+double deviation = 0; //TODO desvio
+
+struct timeval get_time_in_timeval(double time) 
+{
+    struct timeval tp;
+    bzero(&tp,sizeof(struct timeval));
+    double seconds = floor(time);
+    tp.tv_sec = (time_t) seconds;
+    tp.tv_usec = STOUS * (time - seconds);
+
+    return tp;
+}
+
+double get_time_in_seconds(struct timeval *tp)
 {
 	gettimeofday(tp, 0);
-	return (1000 * (double) tp->tv_sec + (double) tp->tv_usec);
+	return ((double) tp->tv_sec + ((double) tp->tv_usec / STOUS) );
 }
 
-/* Update the average timeout by adding to the current avg
-   a given time difference: timevals of final (tf) and initial
-   (ti) time */
-void ev_timeout(struct timeval *ti, struct timeval *tf){
-    secSum += (tf->tv_sec - ti->tv_sec); //diff
-    usecSum += (tf->tv_usec - ti->tv_usec);
-    samples++;
-    timeout.tv_sec = (uint16_t) (secSum/samples);
-    timeout.tv_usec = (uint16_t) (usecSum/samples);
-}
+double get_timeout_in_ms(double sample_rtt)
+{
+    double alfa = 1 / 8;
+    estimated_rtt = ((1 - alfa) * estimated_rtt) + (alfa * sample_rtt);
 
+    double beta = 1 / 4;
+    deviation = ((1 - beta) * deviation) + (beta * abs(sample_rtt - estimated_rtt));
+
+    return(estimated_rtt + (4 * deviation));
+}
 /* ########## MAIN PROGRAM #################*/
 /* u_int16_t check(char data[1000]){
     return rfc_checksum(data, sizeof(data)*8);

@@ -9,22 +9,24 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <sys/time.h>
+#include <math.h>
 
 #define MAX_MSG 1000
 #define din_timeout 1
 
-unsigned short currPkt = 1; //inicializa enviando o pacote 1
-
-struct message_t{
+struct header_t{
 	unsigned int seq; //seq number
 	unsigned int ack; //ZERO se pacote normal
 	unsigned short checksum;
     unsigned short size_msg;
+};
+
+struct message_t{
+    struct header_t h;
 	unsigned char msg[MAX_MSG];
 };
 
 typedef struct message_t tMessage;
-
 
 /*	Addr: pointer to msg
  *	Count: size of msg */
@@ -48,87 +50,140 @@ unsigned short rfc_checksum(unsigned short * addr,size_t count) {
        return ~sum;
 }
 
-tMessage make_pkt(char ACK, void* msg, unsigned short msg_size)
+int get_msg_size(tMessage msg){
+    return (sizeof(struct header_t) + msg.h.size_msg);
+}
+
+/* returns a tMessage package containing:
+	ACK -> 0, if is a message and ACK number if is an ACK package
+	Message -> the data to be transmitted
+	msg_size -> the size of the message
+*/
+tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned short msg_size)
 {
 	tMessage pkt;
 	bzero(&pkt, sizeof(tMessage));
-	pkt.seq = currPkt;
-    pkt.ack = ACK;
-	memcpy(pkt.msg, msg, msg_size);
-	pkt.checksum = rfc_checksum((unsigned short *) pkt.msg, msg_size);
+	pkt.h.seq = seq;
+    pkt.h.ack = ack;
+	memcpy(pkt.msg, message, msg_size);
+    pkt.h.checksum = 0;
+	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
 	return pkt;
 }
 
-int isCorrupt(tMessage pkt) //Verica se Checksum é diferente do esperado
+void show_msg(tMessage msg)
 {
-	return (pkt.checksum != rfc_checksum(&pkt.message,sizeof(pkt.message)));
+    if(msg.h.ack != 0) printf("\n=============\nACK Package:\n");
+    else printf("\n=============\nMSG Package:\n");
+
+    printf("|Header:\n| seq: %d\n| ack: %d\n| CS: %d\n| msg_size: %d\n|Message: \n| msg: \"%s\"\n=============\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
 }
 
-int isACK(tMessage pkt, int expID) //Verifica se é o ACK esperado
+int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
 {
-	if (pkt.id != 2) return 0; //Se não é pacote ACK, não é ACK
-	return (atoi(pkt.message) == expID); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
+	return (msg.h.checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)));
 }
 
+int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
+{
+	return (msg.h.ack == expAck); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
+}
 
 /* ########## timeout.h #################*/
 
-struct timeval timeout_avg;//Note that timeout stores de AVERAGE timeout to be set
-int samples = 0;
-long int secSum = 0;
-long int usecSum = 0;
+#define STOUS 1000000 //10**6
 
-double getTime_sec(struct timeval *tp)
+double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
+double deviation = 0; //TODO desvio
+
+
+struct timeval get_time_in_timeval(double time) 
 {
-	gettimeofday(tp, 0);
-	return (1000 * (double) tp->tv_sec + (double) tp->tv_usec);
+    struct timeval tp;
+    bzero(&tp,sizeof(struct timeval));
+    double seconds = floor(time);
+    tp.tv_sec = (time_t) seconds;
+    tp.tv_usec = STOUS * (time - seconds);
+
+    return tp;
 }
 
-/* Update the average timeout by adding to the current avg
-   a given time difference: timevals of final (tf) and initial
-   (ti) time */
-void ev_timeout(struct timeval *ti, struct timeval *tf){
-    secSum += (tf->tv_sec - ti->tv_sec); //diff
-    usecSum += (tf->tv_usec - ti->tv_usec);
-    samples++;
-    timeout_avg.tv_sec = (uint16_t) (secSum/samples);
-    timeout_avg.tv_usec = (uint16_t) (usecSum/samples);
+/*Get current time and return it in (double) seconds*/
+double get_time_in_seconds()
+{
+	struct timeval tp;
+	bzero(&tp, sizeof(struct timeval));
+	gettimeofday(&tp, 0);
+	return ((double) tp.tv_sec + ((double) tp.tv_usec / STOUS) );
 }
 
-void set_timeout(int fd, struct timeval timeout)
+/*Returns the adjusted timeout by recieving the sample timeout
+ * Uses the formula: 
+ * given alpha = 1/8, beta = 1/4:
+ * 	RTT_estimado = (1 - alpha)*RTT_estimado + alpha*RTT_estimado
+ * 	dev = (1- beta)*dev + betha*|RTT_amostrado - RTT_estimado|
+ * 	timeout = RTT_estimado + 4*dev
+ */
+double get_timeout_in_ms(double initial, double final)
 {
-	// timeout para recebimento
+    double sample_rtt = final - initial;
+	double alfa = 1 / 8;
+	double beta = 1 / 4;
+
+    estimated_rtt = ((1 - alfa) * estimated_rtt) + (alfa * sample_rtt);
+    deviation = ((1 - beta) * deviation) + (beta * abs(sample_rtt - estimated_rtt));
+
+    return(estimated_rtt + (4 * deviation));//the timeout to be set
+}
+
+/* set the time given in timeval struct *timeout* as timeout to the *fd* socket */
+void set_timeout(int fd, double timeout_insec)
+{
+	struct timeval timeout = get_time_in_timeval(timeout_insec);
 	if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
 		perror("setsockopt(..., SO_RCVTIMEO ,...");
 }
 
 // ############### RDT ###############################
 
+unsigned short currMsg = 1; //inicializa enviando a mensagem 1
 
-
-void rdt_send(int fd, char data[MAX_MSG], struct sockaddr_in servaddr)
+void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *port)
 {
 	int currerrno = errno; //keep track of errno to check if there was a timeout
 	int keepGoing = 1;
+	int res, len;
 
 	//Parte do timeout movel:
-	struct timeval t0, tf;
+	double t0 = 0;
+	double tf = 0;
+	double timeout;
+	if(currMsg == 1){
+		//the first call assumes the initial estimated_RTT as timeout (or send a "testing" package?)
+		timeout = estimated_rtt;
+		set_timeout(fd, timeout);
+	}
 	
-	//Calculando o checksum:
-	uint16_t chk = 0; //NAO FUNCIONA O CHECKSUM!!!!!
-	tMessage request = make_pkt(currPkt, data, chk);
+	struct sockaddr_in servaddr;
+	tMessage request, response;
+
+	memset(&servaddr, 0, sizeof(servaddr));
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(atoi(port));
+	servaddr.sin_addr.s_addr = inet_addr(ip);
+
+	request = make_msg(currMsg, 0, data, data_size);
 
 	while(keepGoing == 1){
-		if(din_timeout) getTime_ms(&t0); //get initial time
+		if(din_timeout) t0 = get_time_in_seconds(); //get initial time
 
-		sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
+		sendto(fd, (tMessage*)&request, get_msg_size(request), MSG_CONFIRM,
 			(struct sockaddr *) &servaddr, sizeof(servaddr));
 
 		printf("sendto: Message Sent\n");
 
-		//Check the ack:
-		int res, len;
-		tMessage response; //redeclare the response all times!!
+		//Await for ACK
+		bzero(&response, sizeof(tMessage));
 		len = sizeof(struct sockaddr_in);
 		res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
 				(struct sockaddr *) &servaddr, &len);
@@ -138,34 +193,35 @@ void rdt_send(int fd, char data[MAX_MSG], struct sockaddr_in servaddr)
 
 		if (errno != EAGAIN) //Se nao chegou o pacote, reenviar o pacote!
 		{
-			//Pacote recebido: Ajustar o timeout medio
-			if(din_timeout)
-			{
-				getTime_ms(&tf); //INDEPENDENTE DE SE FOR O CERTO, o timeout é em cima de um pacote enviar e seu tempo a ser recevido de volta
-				ev_timeout(&t0,&tf);
-				set_timeout(fd, timeout_avg);
-			}
-			
-			printf("Packet Recieved:\n| ID: %d\n| Content: %s\n| Cksum: %d", response.id, response.message, response.checksum);
-			//Pacote recebido: conferir se eh o ack certo!!
+			show_msg(response); //debug purposes
+
 			//Check if it is corrupted:
 			if (isCorrupt(response))
 			{
 				printf("rdt_send: Corrupted Package recieved: Trying again...\n");
-				errno = 0;
+				errno = 0; //reset errno to try again
 			} 
 			else
 			{
 				//Check the ack recieved:
-				if (isACK(response, currPkt)){
-					currPkt = !currPkt; //Next package will be: 1, if current was 0. 0, if current was 1.
+				if (isACK(response, currMsg)){
+					//Pacote recebido: Ajustar o timeout medio
+					if(din_timeout)
+					{
+						tf = get_time_in_seconds(); //INDEPENDENTE DE SE FOR O CERTO, o timeout é em cima de um pacote enviar e seu tempo a ser recevido de volta
+						timeout = get_timeout_in_ms(t0, tf);
+						set_timeout(fd, timeout);
+					}
+					
+					currMsg ++;
 					keepGoing = 0; //OK!
-					printf("sendto: Message Succesfully Sent :D \n");
+					errno = 0;
+					printf("sendto: Message Succesfully Sent \n");
 				} 
 				else 
 				{
 					printf("rdt_send: ACK not recieved: Trying again...\n");
-					errno = 0;
+					errno = 0; //clear errno to go on
 				}
 			}	
 		}
@@ -178,24 +234,22 @@ void rdt_send(int fd, char data[MAX_MSG], struct sockaddr_in servaddr)
 }
 
 
-void rdt_receive(int fd, tMessage request, tMessage response, struct sockaddr_in servaddr)
+/*  void rdt_receive(int fd, void* data, struct sockaddr_in caddr)
 {
+
 	int res, len;
-
 	len = sizeof(struct sockaddr_in);
-	res = recvfrom(fd, (tMessage*)&response, sizeof(tMessage), MSG_WAITALL,
-		 	(struct sockaddr *) &servaddr, &len);
+	res = recvfrom(fd, (tMessage *)&response, sizeof(tMessage), MSG_WAITALL,
+				   (struct sockaddr *)&servaddr, &len);
 
-	printf("Response: %d\n", response.id);
+	printf("Received: %s\n", response.message);
+	strcpy(clientMessage, response.message);
 
-	/*
-	sendto(fd, (tMessage*)&request, sizeof(request), MSG_CONFIRM,
-		(struct sockaddr *) &servaddr, sizeof(servaddr));
+	sendto(fd, (tMessage *)&response, sizeof(response), MSG_CONFIRM,
+		   (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-	printf("Response Sent\n");
-	*/
-}
-
+	printf("Response Sent = %s\n", clientMessage);
+} */
 
 int main(int argc, char* argv[])
 {
@@ -205,47 +259,30 @@ int main(int argc, char* argv[])
 		return(-1);
 	}
 
-	char* ip;
+	//reading the ip, port and message
+	char* ip, *port, *data;
 	ip = argv[1];
-	char* port;
 	port = argv[2];
+	data = argv[3];
+	unsigned short data_size = strlen(argv[3]);
 
-	struct sockaddr_in servaddr;
-
-	tMessage request;
-
-	tMessage response;
-
-	strcpy(request.message, argv[3]);
-	request.id = SENDER;
-
-	strcpy(response.message, "");
-	response.id = 0;
-
+	//creating socket:
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
 	if(fd < 0)
 	{
 		perror("Erro no Socket");
-       		exit(EXIT_FAILURE);
+       	exit(EXIT_FAILURE);
 	}
 
-	//Conffigurando o TIMEOUT
+	//Conffigurando o TIMEOUT (mover pro rdt_send?)
 	struct timeval timeout;
-	timeout.tv_sec = init_timeout_sec; // segundos
-	timeout.tv_usec = init_timeout_usec; // microssegundos
+	//definir timeout
 	// timeout para recebimento
 	if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
 		perror("setsockopt(..., SO_RCVTIMEO ,...");
 
-
-	memset(&servaddr, 0, sizeof(servaddr));
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_port = htons(atoi(port));
-	servaddr.sin_addr.s_addr = inet_addr(ip);
-
-	rdt_send(fd, request, response, servaddr);
-	//rdt_receive(fd, request, response, servaddr);
+	rdt_send(fd, data, data_size, ip, port);
 
 	close(fd);
 	return 0;

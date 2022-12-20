@@ -7,11 +7,7 @@
 #define STOUS 1000000
 
 double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
-double sample_rtt = 0.2; //TODO tempo médio em segundos de rtt calculado no código
 double deviation = 0; //TODO desvio
-
-double sum_rtt = 0; //TODO soma de rtts
-double num_samples = 0; //quantidade de amostras
 
 struct timeval get_time_in_timeval(double time) 
 {
@@ -30,7 +26,7 @@ double get_time_in_seconds(struct timeval *tp)
 	return ((double) tp->tv_sec + ((double) tp->tv_usec / STOUS) );
 }
 
-double get_timeout_in_ms()
+double get_timeout_in_ms(double sample_rtt)
 {
     double alfa = 1 / 8;
     estimated_rtt = ((1 - alfa) * estimated_rtt) + (alfa * sample_rtt);
@@ -39,11 +35,4 @@ double get_timeout_in_ms()
     deviation = ((1 - beta) * deviation) + (beta * abs(sample_rtt - estimated_rtt));
 
     return(estimated_rtt + (4 * deviation));
-}
-
-void new_sample_rtt(double new_sample)  //Adiciona mais uma amostra de rtt a soma de rtt e recalcula rtt amostrado
-{
-    num_samples++;
-    sum_rtt += new_sample;
-    sample_rtt = sum_rtt / num_samples;
 }
