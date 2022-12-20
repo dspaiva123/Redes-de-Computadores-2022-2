@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <math.h>
+#include <string.h>
 
 #define STOUS 1000000
 
@@ -15,6 +16,7 @@ double num_samples = 0; //quantidade de amostras
 struct timeval get_time_in_timeval(double time) 
 {
     struct timeval tp;
+    bzero(&tp,sizeof(struct timeval));
     double seconds = floor(time);
     tp.tv_sec = (time_t) seconds;
     tp.tv_usec = STOUS * (time - seconds);

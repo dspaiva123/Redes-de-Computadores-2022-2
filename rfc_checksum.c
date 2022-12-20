@@ -10,12 +10,12 @@
 #include <inttypes.h>
 #include <sys/time.h>
 
-unsigned short currPkt = 1; //inicializa enviando o pacote 0
+unsigned short currMsg = 1; //inicializa enviando o pacote 1
 #define MAX_MSG 1000
 
 struct header_t{
 	unsigned int seq; //seq number
-	unsigned short ack; //ZERO se pacote normal
+	unsigned int ack; //ZERO se pacote normal
 	unsigned short checksum;
     unsigned short size_msg;
 };
@@ -27,16 +27,16 @@ struct message_t{
 
 typedef struct message_t tMessage;
 
-int get_msg_size(){
+int get_msg_size(tMessage msg){
     return (sizeof(struct header_t) + msg.h.size_msg);
 }
 
-void exemplo(){
+/* void exemplo(){
     tMessage msg;
     msg.h.checksum = 0;
     msg.h.checksum = checksum(&msg, get_msg_size(msg));   
     //PARA O ACK BASTA PASSAR ISSO SÓ QUE: checksum(&msg, sizeof(struct header_t));
-}
+} */
 
 unsigned short rfc_checksum(unsigned short * addr,size_t count) {
     register long sum = 0;
@@ -96,25 +96,35 @@ int isCorrupt(tMessage pkt) //VERIFICA SE O CHECKSUM CALCULADO É DIFERENTE DO D
 	return (pkt.checksum != rfc_checksum(pkt.message,strlen(pkt.message)));
 } */
 
-tMessage make_pkt(char ACK, void* msg, unsigned short msg_size)
+tMessage make_msg(char ACK, void* message, unsigned short msg_size)
 {
 	tMessage pkt;
 	bzero(&pkt, sizeof(tMessage));
-	pkt.seq = currPkt;
-    pkt.ack = ACK;
-	memcpy(pkt.msg, msg, msg_size);
-	pkt.checksum = rfc_checksum((unsigned short *) pkt.msg, msg_size);
+	pkt.h.seq = currMsg;
+    pkt.h.ack = ACK;
+	memcpy(pkt.msg, message, msg_size);
+    pkt.h.checksum = 0;
+	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
 	return pkt;
 }
 
+void show_msg(tMessage msg)
+{
+    if(msg.h.ack != 0) printf("\n=============\nACK Package:\n");
+    else printf("\n=============\nMSG Package:\n");
 
+    printf("|Header:\n| seq: %d\n| ack: %d\n| CS: %d\n| msg_size: %d\n|Message: \n| msg: \"%s\"\n=============\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
+}
 
 int main(int argc, char const *argv[])
 {
     tMessage msg;
     bzero(&msg, sizeof(tMessage));
-    msg = make_pkt(0, argv[1], strlen(argv[1]));
-    printf("\n%s -> CS: %d\n", msg.msg, msg.checksum);
+    msg = make_msg(1, NULL, 0);
+    show_msg(msg);
+    bzero(&msg, sizeof(tMessage));
+    msg = make_msg(0, argv[1], strlen(argv[1]));
+    show_msg(msg);
     /* msg.checksum = rfc_checksum(msg.message,strlen(msg.message));
     printf("\n%s - %d\n", msg.message, msg.checksum); */
     

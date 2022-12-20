@@ -13,11 +13,11 @@
 #define MAX_MSG 1000
 #define din_timeout 1
 
-unsigned short currPkt = 0; //inicializa enviando o pacote 0
+unsigned short currPkt = 1; //inicializa enviando o pacote 1
 
 struct message_t{
 	unsigned int seq; //seq number
-	unsigned short ack; //ZERO se pacote normal
+	unsigned int ack; //ZERO se pacote normal
 	unsigned short checksum;
     unsigned short size_msg;
 	unsigned char msg[MAX_MSG];
