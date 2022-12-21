@@ -18,8 +18,8 @@ unsigned short currMsg = 1; //inicializa esperando a mensagem 1
 struct header_t{
 	unsigned int seq; //seq number
 	unsigned int ack; //ZERO se pacote normal
-	unsigned short checksum;
-    unsigned short size_msg;
+	unsigned short checksum; //calculated checksum using the above RFC_checksum function from checksum.h
+    unsigned short size_msg; //size of message payload LIMITED BY MAX_MSG
 };
 
 struct message_t{
@@ -68,7 +68,7 @@ tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned sh
     pkt.h.ack = ack;
 	memcpy(pkt.msg, message, msg_size);
     pkt.h.checksum = 0;
-	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
+	//pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
 	return pkt;
 }
 
@@ -82,7 +82,7 @@ void show_msg(tMessage msg)
 
 int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
 {
-	return (msg.h.checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)));
+	return (msg.h.checksum != 0 /* rfc_checksum((unsigned short *) &msg, get_msg_size(msg)) */);
 }
 
 int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
@@ -96,42 +96,47 @@ int isSeq(tMessage msg, unsigned int expSeq)
 }
 
 
-ssize_t rdt_receive(int cfd, void* data)
+ssize_t rdt_receive(int cfd, char* data, struct sockaddr_in * caddr)
 {
 	//FALTA ITERAR CONTINUAMENTE ATÉ CHEGAR O PACOTE ESPERADO!!!!
 
 	//assumes that the bind was already done by caller
-	int res = 0, len = 0;
-
-	tMessage response;
-	bzero(&response, sizeof(tMessage));
-
-	struct sockaddr_in caddr;
+	int res = 0, keepGoing = 1;
 	int addr_len = sizeof(struct sockaddr_in);
-	bzero(&caddr, addr_len);
 
-	len = sizeof(struct sockaddr_in);
-	res = recvfrom(cfd, (tMessage *)&response, sizeof(tMessage), MSG_WAITALL,
-				   (struct sockaddr *)&caddr, &len);
+	tMessage response, ACK;
 
-	show_msg(response);
-	
-	//ENvio do ACK
-	tMessage ACK;
-
-	//FALTA AS CONDICOES:
-	// - chegar integridade do ACK ANTES DE VER SE É A SEQUENCIA CORRETA!!!!!!!!!!!
-	if (isSeq(response, currMsg)) //VER SE É O PACOTE ESPERADO!!!
+	while(keepGoing == 1)
 	{
-		ACK = make_msg(0, response.h.seq, NULL, 0);
-		strcpy(data, response.msg);
-	} else {
-		ACK = make_msg(0, (currMsg - 1), NULL, 0);//Reenviar ACK do pacote anterior
+		bzero(&response, sizeof(tMessage));
+
+		res = recvfrom(cfd, (tMessage *)&response, sizeof(tMessage), 0,
+					(struct sockaddr *) caddr, &addr_len);
+		
+		//show_msg(response);
+		//printf("-> %d\n->%d", &response, rfc_checksum((unsigned short *) &response, get_msg_size(response)));
+		//FALTA AS CONDICOES:
+		// - checar integridade do pacote
+		if(!isCorrupt(response)){ //se nao esta corrompido
+			
+			if (isSeq(response, currMsg)) //Se eh o pacote esperado
+			{
+				show_msg(response);
+				ACK = make_msg(0, response.h.seq, NULL, 0); //Definir ACK
+				memcpy(data, response.msg, response.h.size_msg);
+				currMsg++;
+				keepGoing = 0;
+			} else { //se nao eh o esperado, o sender pode nao ter recebido o ack do pacote anterior, entao reenviar
+				//seria necessario reconferir? (ex.: isSeq(response, currMsg-1))?
+				ACK = make_msg(0, (currMsg - 1), NULL, 0);//Reenviar ACK do pacote anterior
+				keepGoing = 1;
+			}
+		
+			sendto(cfd, (tMessage *)&ACK, sizeof(response), MSG_CONFIRM,
+				(struct sockaddr *) caddr, sizeof(*caddr));
+		} //se esta corrompido, melhor deixar dar timeout la no sender! (sera?)
 	}
-	
-	sendto(cfd, (tMessage *)&ACK, sizeof(response), MSG_CONFIRM,
-		   (struct sockaddr *)&caddr, sizeof(caddr));
-	
+	return res;
 }
 
 int main(int argc, char **argv)
@@ -151,7 +156,7 @@ int main(int argc, char **argv)
 		}
 
 	struct sockaddr_in addr, caddr;
-	int cfd;
+	int cfd, addr_len = sizeof(struct sockaddr_in);
 
 	addr.sin_addr.s_addr = INADDR_ANY;
 	addr.sin_port = htons(atoi(argv[1]));
@@ -166,9 +171,11 @@ int main(int argc, char **argv)
 
 	while (1)
 	{
+		bzero(&caddr, addr_len);
 		bzero(recieved_msg, MAX_MSG);
 		cfd = ls;
-		rdt_receive(cfd, recieved_msg);
+		rdt_receive(cfd, recieved_msg, (struct sockaddr_in *)&caddr);
+		printf("\nMensagem Rcebida: %s", recieved_msg);
 		
 	}
 	close(cfd);

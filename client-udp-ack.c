@@ -21,7 +21,7 @@ unsigned short currMsg = 1; //inicializa enviando a mensagem 1
 
 /* ########## rdt_timeout.h #################*/
 
-double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
+double estimated_rtt = 5; //TODO tempo em segundos estimado de rtt (obtido previamente?)
 double deviation = 0; //TODO desvio
 
 struct timeval get_time_in_timeval(double time) 
@@ -131,8 +131,9 @@ tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned sh
 	pkt.h.seq = seq;
     pkt.h.ack = ack;
 	memcpy(pkt.msg, message, msg_size);
+	pkt.h.size_msg = msg_size;
     pkt.h.checksum = 0;
-	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
+	//pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
 	return pkt;
 }
 
@@ -148,7 +149,7 @@ void show_msg(tMessage msg)
 
 int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
 {
-	return (msg.h.checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)));
+	return (msg.h.checksum != 0 /* rfc_checksum((unsigned short *) &msg, get_msg_size(msg)) */);
 }
 
 int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
@@ -181,19 +182,20 @@ void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *por
 	servaddr.sin_addr.s_addr = inet_addr(ip);
 
 	request = make_msg(currMsg, 0, data, data_size);
-
+	show_msg(request);
+	//printf("-> %d", rfc_checksum((unsigned short *) &request, get_msg_size(request)));
 	while(keepGoing == 1){
 		if(din_timeout) t0 = get_time_in_seconds(); //get initial time
 
 		sendto(fd, (tMessage*)&request, get_msg_size(request), MSG_CONFIRM,
-			(struct sockaddr *) &servaddr, sizeof(servaddr));
+			(struct sockaddr *) &servaddr, sizeof(struct sockaddr_in));
 
 		printf("sendto: Message Sent\n");
 
 		//Await for ACK
 		bzero(&response, sizeof(tMessage));
 		len = sizeof(struct sockaddr_in);
-		res = recvfrom(fd, (tMessage*)&response, sizeof(response), MSG_WAITALL,
+		res = recvfrom(fd, (tMessage*)&response, sizeof(response), 0,
 				(struct sockaddr *) &servaddr, &len);
 
 		//NÓ de Wait for ACK
@@ -263,17 +265,18 @@ int main(int argc, char* argv[])
 {
 	if(argc < 4)
 	{
-		printf("Use: <ip> <porta> <mensagem>\n");
+		printf("Use: <ip> <porta> <mensagem1> <mensagem2>\n");
 		return(-1);
 	}
 
 	//reading the ip, port and message
-	char* ip, *port, *data;
+	char* ip, *port, *data, *data2;
 	ip = argv[1];
 	port = argv[2];
 	data = argv[3];
+	data2 = argv[4];
 	unsigned short data_size = strlen(argv[3]);
-
+	unsigned short data2_size = strlen(argv[4]);
 	//creating socket:
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
@@ -291,7 +294,8 @@ int main(int argc, char* argv[])
 		perror("setsockopt(..., SO_RCVTIMEO ,..."); */
 
 	rdt_send(fd, data, data_size, ip, port);
-
+	rdt_send(fd, data2, data2_size, ip, port);
+	rdt_send(fd, data, data_size, ip, port);
 	close(fd);
 	return 0;
 }
