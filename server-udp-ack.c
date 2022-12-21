@@ -68,7 +68,7 @@ tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned sh
     pkt.h.ack = ack;
 	memcpy(pkt.msg, message, msg_size);
     pkt.h.checksum = 0;
-	//pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
+	pkt.h.checksum = rfc_checksum((unsigned short *) &pkt, get_msg_size(pkt));
 	return pkt;
 }
 
@@ -82,8 +82,11 @@ void show_msg(tMessage msg)
 
 int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
 {
-	return (msg.h.checksum != 0 /* rfc_checksum((unsigned short *) &msg, get_msg_size(msg)) */);
+	unsigned short checksum = msg.h.checksum;
+	msg.h.checksum = 0;
+	return (checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)) );
 }
+
 
 int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
 {
@@ -121,7 +124,6 @@ ssize_t rdt_receive(int cfd, char* data, struct sockaddr_in * caddr)
 			
 			if (isSeq(response, currMsg)) //Se eh o pacote esperado
 			{
-				show_msg(response);
 				ACK = make_msg(0, response.h.seq, NULL, 0); //Definir ACK
 				memcpy(data, response.msg, response.h.size_msg);
 				currMsg++;
@@ -168,14 +170,19 @@ int main(int argc, char **argv)
 	}
 
 	char recieved_msg[MAX_MSG];
-
+	int res = 0;
 	while (1)
 	{
 		bzero(&caddr, addr_len);
 		bzero(recieved_msg, MAX_MSG);
 		cfd = ls;
-		rdt_receive(cfd, recieved_msg, (struct sockaddr_in *)&caddr);
-		printf("\nMensagem Rcebida: %s", recieved_msg);
+		res = rdt_receive(cfd, recieved_msg, (struct sockaddr_in *)&caddr);
+		printf("Cliente IP(%s):Porta(%d): %d bytes: %s \n",
+				inet_ntoa(caddr.sin_addr),
+				ntohs(caddr.sin_port),
+				res,
+				recieved_msg);
+		fflush(stdout);
 		
 	}
 	close(cfd);

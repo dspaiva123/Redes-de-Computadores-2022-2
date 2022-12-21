@@ -60,54 +60,6 @@ unsigned short rfc_checksum(unsigned short * addr,size_t count) {
        return ~sum;
 }
 
-/* ########## timeout.h #################*/
-
-#define STOUS 1000000
-
-double estimated_rtt = 0.2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
-double deviation = 0; //TODO desvio
-
-struct timeval get_time_in_timeval(double time) 
-{
-    struct timeval tp;
-    bzero(&tp,sizeof(struct timeval));
-    double seconds = floor(time);
-    tp.tv_sec = (time_t) seconds;
-    tp.tv_usec = STOUS * (time - seconds);
-
-    return tp;
-}
-
-double get_time_in_seconds(struct timeval *tp)
-{
-	gettimeofday(tp, 0);
-	return ((double) tp->tv_sec + ((double) tp->tv_usec / STOUS) );
-}
-
-double get_timeout_in_ms(double sample_rtt)
-{
-    double alfa = 1 / 8;
-    estimated_rtt = ((1 - alfa) * estimated_rtt) + (alfa * sample_rtt);
-
-    double beta = 1 / 4;
-    deviation = ((1 - beta) * deviation) + (beta * abs(sample_rtt - estimated_rtt));
-
-    return(estimated_rtt + (4 * deviation));
-}
-/* ########## MAIN PROGRAM #################*/
-/* u_int16_t check(char data[1000]){
-    return rfc_checksum(data, sizeof(data)*8);
-}
-void test(char data[1000]){
-    //printf("%d + %d", data[0], sizeof(data));
-    printf("\n%d\n", check(data));
-}
-
-int isCorrupt(tMessage pkt) //VERIFICA SE O CHECKSUM CALCULADO É DIFERENTE DO DO ENVIADO!
-{
-	return (pkt.checksum != rfc_checksum(pkt.message,strlen(pkt.message)));
-} */
-
 tMessage make_msg(char ACK, void* message, unsigned short msg_size)
 {
 	tMessage pkt;
@@ -134,11 +86,9 @@ int main(int argc, char const *argv[])
     bzero(&msg, sizeof(tMessage));
     msg = make_msg(1, NULL, 0);
     show_msg(msg);
-    bzero(&msg, sizeof(tMessage));
-    msg = make_msg(0, argv[1], strlen(argv[1]));
-    show_msg(msg);
-    /* msg.checksum = rfc_checksum(msg.message,strlen(msg.message));
-    printf("\n%s - %d\n", msg.message, msg.checksum); */
+    msg.h.checksum = 0;
+    printf("-> %d\n", rfc_checksum(&msg,get_msg_size(msg)));
+    
     
     return 0;
 }
