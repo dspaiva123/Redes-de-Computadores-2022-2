@@ -15,7 +15,7 @@
 #define MAX_MSG 1000
 #define MAX_MSG_AMOUNT 40
 #define din_timeout 1
-#define test_corrupt 0
+#define test_corrupt 1
 #define STOUS 1000000 //10**6
 
 unsigned short currMsg = 1; //inicializa enviando a mensagem 1
@@ -23,7 +23,9 @@ unsigned short currMsg = 1; //inicializa enviando a mensagem 1
 /* ########## rdt_timeout.h #################*/
 
 double estimated_rtt = 2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
-double deviation = 0.1; //TODO desvio
+//Primeiro envio sem temporizador, comeca o ajuste a partir da primeira resposta
+//Dado o primeiro sample, comeco dele
+double deviation = 0.1; //TODO desvio (comecar com 0)
 
 struct timeval get_time_in_timeval(double time) 
 {
