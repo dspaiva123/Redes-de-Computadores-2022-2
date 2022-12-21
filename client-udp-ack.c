@@ -23,7 +23,7 @@ unsigned short currMsg = 1; //inicializa enviando a mensagem 1
 /* ########## rdt_timeout.h #################*/
 
 double estimated_rtt = 2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
-double deviation = 0; //TODO desvio
+double deviation = 0.1; //TODO desvio
 
 struct timeval get_time_in_timeval(double time) 
 {
