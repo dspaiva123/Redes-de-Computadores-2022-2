@@ -191,6 +191,9 @@ void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *por
 	servaddr.sin_addr.s_addr = inet_addr(ip);
 
 	request = make_msg(currMsg, 0, data, data_size);
+	if((currMsg % 2) == 0){ //CORROMPENDO CADA DADO DE SEQ PAR
+		request.msg[data_size-1] = 'X';
+	}
 	//show_msg(request);
 	
 	while(keepGoing == 1){

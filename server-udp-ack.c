@@ -72,12 +72,14 @@ tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned sh
 	return pkt;
 }
 
+/* Utilitary funct
+*/
 void show_msg(tMessage msg)
 {
-    if(msg.h.ack != 0) printf("\n=============\nACK Package:\n");
-    else printf("\n=============\nMSG Package:\n");
+    if(msg.h.ack != 0) printf("\n$ ------------\n$ ACK Package:\n");
+    else printf("\n$ ------------\n$ MSG Package:\n");
 
-    printf("|Header:\n| seq: %d\n| ack: %d\n| CS: %d\n| msg_size: %d\n|Message: \n| msg: \"%s\"\n=============\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
+    printf("$ |Header:\n$ | seq: %d\n$ | ack: %d\n$ | CS: %d\n$ | msg_size: %d\n$ |Message: \n$ | msg: \"%s\"\n$ ------------\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
 }
 
 int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
@@ -137,6 +139,12 @@ ssize_t rdt_receive(int cfd, char* data, struct sockaddr_in * caddr)
 			sendto(cfd, (tMessage *)&ACK, sizeof(response), MSG_CONFIRM,
 				(struct sockaddr *) caddr, sizeof(*caddr));
 		} //se esta corrompido, melhor deixar dar timeout la no sender! (sera?)
+		else
+		{
+			printf("\n$ rdt_recieve->recvfrom: Pacote corrompido recebido:");
+			show_msg(response);
+		}
+		
 	}
 	return res;
 }
