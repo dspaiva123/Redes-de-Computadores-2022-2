@@ -15,10 +15,10 @@
 #define MAX_MSG 1000
 #define MAX_MSG_AMOUNT 40
 #define din_timeout 1
+#define test_corrupt 0
 #define STOUS 1000000 //10**6
 
 unsigned short currMsg = 1; //inicializa enviando a mensagem 1
-
 
 /* ########## rdt_timeout.h #################*/
 
@@ -144,8 +144,7 @@ tMessage make_msg(unsigned int seq, unsigned int ack, void* message, unsigned sh
 	return pkt;
 }
 
-/* Utilitary funct
-*/
+// Print the content of given tMessage msg
 void show_msg(tMessage msg)
 {
     if(msg.h.ack != 0) printf("\n$ ------------\n$ ACK Package:\n");
@@ -154,16 +153,31 @@ void show_msg(tMessage msg)
     printf("$ |Header:\n$ | seq: %d\n$ | ack: %d\n$ | CS: %d\n$ | msg_size: %d\n$ |Message: \n$ | msg: \"%s\"\n$ ------------\n", msg.h.seq, msg.h.ack, msg.h.checksum, msg.h.size_msg, msg.msg);
 }
 
-int isCorrupt(tMessage msg) //Verica se Checksum é diferente do esperado
+/* Checks if a msg packet is corrupted and returns 1 if yes:
+ * - Recalculates the checksum using the same method as make_msg()
+ * - evaluates if it is different from the checksum in the msg packet
+ */
+int isCorrupt(tMessage msg)
 {
 	unsigned short checksum = msg.h.checksum;
 	msg.h.checksum = 0;
 	return (checksum != rfc_checksum((unsigned short *) &msg, get_msg_size(msg)) );
 }
 
+/* Checks if the tMessage msg is an expAck ACK
+ * - Given the expected ack, compares if the given msg is an ACK for this expAck
+ */
 int isACK(tMessage msg, unsigned int expAck) //Verifica se é o ACK esperado
 {
 	return (msg.h.ack == expAck); //lembrar de que o reciever tem que enviar a mensagem do pacote sendo uma string de "0" ou "1"
+}
+
+/* Checks if the given msg is the expected seq
+ * - Given the expected seq, compares if the given msg is the msg of the exp seq
+ */
+int isSeq(tMessage msg, unsigned int expSeq)
+{
+	return (msg.h.seq == expSeq);
 }
 
 void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *port)
@@ -191,12 +205,12 @@ void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *por
 	servaddr.sin_addr.s_addr = inet_addr(ip);
 
 	request = make_msg(currMsg, 0, data, data_size);
-	if((currMsg % 2) == 0){ //CORROMPENDO CADA DADO DE SEQ PAR
-		request.msg[data_size-1] = 'X';
+
+	if(test_corrupt && ((currMsg % 2) == 0)){ 
+		request.msg[data_size-1] = 'X'; //CORROMPENDO CADA DADO DE SEQ PAR
 	}
-	//show_msg(request);
-	
-	while(keepGoing == 1){
+
+	while(keepGoing == 1){ //Continualy tries to send the msg
 		if(din_timeout) t0 = get_time_in_seconds(); //get initial time
 		
 		sendto(fd, (tMessage*)&request, get_msg_size(request), MSG_CONFIRM,
@@ -246,7 +260,7 @@ void rdt_send(int fd, void * data, unsigned short data_size, char *ip, char *por
 				} 
 				else 
 				{
-					printf("$ rdt_send: ACK not recieved: Trying again...\n");
+					printf("$ rdt_send: Unexpected (or not ACK) recieved: Trying again...\n");
 					errno = 0; //clear errno to go on
 				}
 			}	
