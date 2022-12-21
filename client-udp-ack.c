@@ -13,6 +13,7 @@
 
 
 #define MAX_MSG 1000
+#define MAX_MSG_AMOUNT 40
 #define din_timeout 1
 #define STOUS 1000000 //10**6
 
@@ -22,7 +23,7 @@ unsigned short currMsg = 1; //inicializa enviando a mensagem 1
 /* ########## rdt_timeout.h #################*/
 
 double estimated_rtt = 2; //TODO tempo em segundos estimado de rtt (obtido previamente?)
-double deviation = 0.1; //TODO desvio
+double deviation = 0; //TODO desvio
 
 struct timeval get_time_in_timeval(double time) 
 {
@@ -260,16 +261,28 @@ int main(int argc, char* argv[])
 {
 	if(argc < 4)
 	{
-		printf("Use: <ip> <porta> <mensagem1>\n");
+		printf("Use: %s <ip> <porta> <mensagem1> ... <mensagem n>\n", argv[0]);
+		return(-1);
+	} else if ((argc - 3) > MAX_MSG_AMOUNT) {
+		printf("Max message amount exceeded, curr limit is %d", MAX_MSG_AMOUNT);
 		return(-1);
 	}
 
 	//reading the ip, port and message
-	char* ip, *port, *data;
+	char* ip, *port, *data[MAX_MSG_AMOUNT];
 	ip = argv[1];
 	port = argv[2];
-	data = argv[3];
-	unsigned short data_size = strlen(argv[3]);
+	
+	int i;
+	unsigned short data_size[MAX_MSG_AMOUNT];;
+
+	for (i = 0; i < (argc-3); i++)
+	{
+		data[i] = argv[i+3];
+		data_size[i] = strlen(argv[i+3]);
+	}
+	
+
 	//creating socket:
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
@@ -278,8 +291,11 @@ int main(int argc, char* argv[])
 		perror("Erro no Socket");
        	exit(EXIT_FAILURE);
 	}
-
-	rdt_send(fd, data, data_size, ip, port);
+	for ( i = 0; i < (argc-3); i++)
+	{
+		rdt_send(fd, data[i], data_size[i], ip, port);
+	}
+	
 	close(fd);
 	return 0;
 }
